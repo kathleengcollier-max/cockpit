@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <title>Cockpit</title>
-<meta name="app-version" content="1.0">
+<meta name="app-version" content="1.3">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"%3E%3Crect width="64" height="64" rx="14" fill="#1A2B44"/%3E%3Cpath fill="#fff" d="M52 32c0-2.2-1.8-4-4-4H35L24 12h-5l5 16H13l-4-6H5l3 10-3 10h4l4-6h11l-5 16h5l11-16h13c2.2 0 4-1.8 4-4z"/%3E%3Ccircle cx="50" cy="32" r="3" fill="#B02B34"/%3E%3C/svg%3E">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&display=swap" rel="stylesheet">
@@ -47,6 +48,11 @@
   .pane{display:flex;flex-direction:column;min-width:0;min-height:0;background:#fff;border:1px solid var(--line);border-radius:6px;overflow:hidden}
   .pane.focus{border-color:var(--red);box-shadow:0 0 0 1px var(--red)}
   .pane.max{position:absolute;inset:var(--gutter);z-index:5}
+  .pane.over{outline:2px dashed var(--red);outline-offset:-2px}
+  .head{cursor:grab}
+  .head:active{cursor:grabbing}
+  .head select,.head button{cursor:pointer}
+  .pane.ghost{opacity:.45}
   .head{height:var(--head-h);display:flex;align-items:center;gap:6px;padding:0 6px 0 8px;background:var(--navy);color:#fff;flex:none}
   .head .n{font-size:12px;color:#AEB8CB;width:14px;text-align:center}
   .head select{height:22px;border:0;background:transparent;color:#fff;font-weight:500;font-size:13px;max-width:240px;padding:0 2px}
@@ -58,7 +64,10 @@
   .head .ic{width:24px;height:22px;border-radius:4px;display:grid;place-items:center;color:#C9D1E0}
   .head .ic:hover{background:var(--navy-2);color:#fff}
   .head .ic svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-  .pane iframe{flex:1;width:100%;height:100%;border:0;background:#fff}
+  .pane .body{flex:1;position:relative;overflow:hidden;background:#fff}
+  .pane iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0;background:#fff;transform-origin:0 0}
+  .head .z{font-size:11.5px;color:#C9D1E0;min-width:34px;text-align:center;cursor:pointer;border-radius:4px;padding:2px 0}
+  .head .z:hover{background:var(--navy-2);color:#fff}
   .pane .empty{flex:1;display:grid;place-items:center;color:var(--muted);font-size:14px;text-align:center;padding:24px}
   .pane .empty b{color:var(--ink);font-weight:500}
 
@@ -115,6 +124,7 @@
   </div>
   <div class="spacer"></div>
   <span class="status" id="status">Loading app list…</span>
+  <button class="btn" id="openall" title="Open every pane's app in its own tab">Open all in tabs</button>
   <button class="btn" id="help">Keys</button>
   <button class="btn" id="hide" title="Hide this bar (Alt+H)">Hide bar</button>
 </div>
@@ -144,13 +154,18 @@
     <div><kbd>Esc</kbd> restore from maximized</div>
     <div><kbd>Alt</kbd><kbd>R</kbd> refresh the focused pane</div>
     <div><kbd>Alt</kbd><kbd>H</kbd> hide or show the top bar</div>
+    <div><kbd>Alt</kbd><kbd>=</kbd> / <kbd>Alt</kbd><kbd>-</kbd> / <kbd>Alt</kbd><kbd>0</kbd> zoom the focused pane in / out / reset</div>
   </div>
   <div class="row"><button id="keysClose">Close</button></div>
 </div></dialog>
 
 <script>
 /* ============================================================
-   Cockpit 1.0
+   Cockpit 1.3
+   1.3 — drag a pane header onto another pane to swap them; "Open all in tabs" in the bar; the active saved layout shows in the tab title.
+   1.2 — airplane favicon.
+   1.1 — per-pane zoom (−/+ in the header, Alt+= / Alt+- / Alt+0); "Saved" dropdown says when there is nothing saved yet.
+   1.0 — first release.
    Panes of your own apps, side by side. App list comes from
    App Catalog (catalog.cockpit_apps view); falls back to the
    snapshot below if the view isn't reachable.
@@ -206,7 +221,7 @@ let state = load(KEY_STATE) || {
   layout:'quad', cols:null, rows:null,
   slots:['https://helm.kathleengrawcollier.com/','https://braindump.kathleengrawcollier.com/',
          'https://getsmart.myjohnstonesupplygroup.com','https://apps.myjohnstonesupplygroup.com'],
-  barHidden:false
+  barHidden:false, activeName:''
 };
 let focus = 0, maxed = -1;
 
@@ -262,6 +277,7 @@ function render(){
     p.classList.toggle('mobile-on', i===focus);
     p.querySelector('.n').textContent = i+1;
     fillSelect(p.querySelector('select'), url);
+    applyZoom(p, i);
     const app = appFor(url), v = p.querySelector('.ver');
     v.textContent = app && app.version ? app.version : ''; v.style.display = v.textContent ? '' : 'none';
     g.appendChild(p);
@@ -270,6 +286,7 @@ function render(){
   // layout buttons
   document.querySelectorAll('.lay').forEach(b=>b.classList.toggle('on', b.dataset.id===state.layout));
   $('#bar').classList.toggle('hidden', !!state.barHidden);
+  document.title = state.activeName ? `Cockpit — ${state.activeName}` : 'Cockpit';
   persist();
 }
 
@@ -283,24 +300,36 @@ function buildPane(i,url){
       <select title="Choose an app for this pane"></select>
       <span class="ver" title="Version recorded in App Catalog">${app && app.version ? esc(app.version) : ''}</span>
       <span class="sp"></span>
+      <button class="ic" data-a="zout" title="Zoom out (Alt+-)"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+      <button class="z" data-a="zreset" title="Reset zoom (Alt+0)">100%</button>
+      <button class="ic" data-a="zin" title="Zoom in (Alt+=)"><svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
       <button class="ic" data-a="refresh" title="Refresh this pane (Alt+R)"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></svg></button>
       <button class="ic" data-a="open" title="Open in its own tab"><svg viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M18 14v6H4V6h6"/></svg></button>
       <button class="ic" data-a="max" title="Maximize / restore (Alt+M)"><svg viewBox="0 0 24 24"><path d="M4 9V4h5"/><path d="M20 15v5h-5"/><path d="M4 4l6 6"/><path d="M20 20l-6-6"/></svg></button>
     </div>`;
   if(url){
+    const body = document.createElement('div'); body.className='body';
     const f = document.createElement('iframe');
     f.src = url; f.setAttribute('allow','clipboard-read; clipboard-write; fullscreen');
     f.title = app ? app.name : url;
-    p.appendChild(f);
+    body.appendChild(f); p.appendChild(body);
   }else{
     p.insertAdjacentHTML('beforeend','<div class="empty"><div><b>Empty pane</b><br>Pick an app from the menu above.</div></div>');
   }
   if(!app || !app.version) p.querySelector('.ver').style.display='none';
-  p.querySelector('.head').addEventListener('mousedown', ()=>setFocus(i));
-  p.querySelector('select').addEventListener('change', e=>{ state.slots[i]=e.target.value; setFocus(i); render(); });
+  const head = p.querySelector('.head');
+  head.addEventListener('mousedown', ()=>setFocus(i));
+  head.draggable = true;
+  head.addEventListener('dragstart', e=>{ e.dataTransfer.setData('text/plain', String(i)); e.dataTransfer.effectAllowed='move'; p.classList.add('ghost'); document.body.classList.add('dragging'); });
+  head.addEventListener('dragend', ()=>{ p.classList.remove('ghost'); document.body.classList.remove('dragging'); document.querySelectorAll('.pane.over').forEach(x=>x.classList.remove('over')); });
+  p.addEventListener('dragover', e=>{ e.preventDefault(); e.dataTransfer.dropEffect='move'; p.classList.add('over'); });
+  p.addEventListener('dragleave', ()=>p.classList.remove('over'));
+  p.addEventListener('drop', e=>{ e.preventDefault(); const from=+e.dataTransfer.getData('text/plain'); p.classList.remove('over'); if(!isNaN(from) && from!==i) swapPanes(from,i); });
+  p.querySelectorAll('.head select,.head button').forEach(el=>el.addEventListener('mousedown', e=>e.stopPropagation()));
+  p.querySelector('select').addEventListener('change', e=>{ state.activeName=''; state.slots[i]=e.target.value; setFocus(i); render(); });
   p.querySelector('.head').addEventListener('click', e=>{
     const b = e.target.closest('button'); if(!b) return;
-    ({refresh:()=>refresh(i), open:()=>openTab(i), max:()=>toggleMax(i)})[b.dataset.a]();
+    ({refresh:()=>refresh(i), open:()=>openTab(i), max:()=>toggleMax(i), zin:()=>zoom(i,+.1), zout:()=>zoom(i,-.1), zreset:()=>zoom(i,null)})[b.dataset.a]();
   });
   return p;
 }
@@ -359,8 +388,26 @@ function setFocus(i){ focus=i; document.querySelectorAll('.pane').forEach(p=>{ p
 function refresh(i){ const f = paneEl(i)?.querySelector('iframe'); if(f){ f.src = f.src; toast(`Refreshed pane ${i+1}`); } }
 function openTab(i){ const u = state.slots[i]; if(u) window.open(u,'_blank','noopener'); }
 function toggleMax(i){ maxed = (maxed===i) ? -1 : i; setFocus(i); render(); }
+function zoom(i, delta){
+  state.zoom = state.zoom || {};
+  let z = delta===null ? 1 : Math.round(((state.zoom[i]||1)+delta)*10)/10;
+  z = Math.max(.5, Math.min(1.6, z)); state.zoom[i]=z; setFocus(i);
+  applyZoom(paneEl(i), i); persist();
+}
+function applyZoom(p, i){
+  const z = (state.zoom||{})[i]||1, f = p.querySelector('iframe'), lbl = p.querySelector('.z');
+  if(f){ f.style.transform=`scale(${z})`; f.style.width=(100/z)+'%'; f.style.height=(100/z)+'%'; }
+  if(lbl) lbl.textContent = Math.round(z*100)+'%';
+}
+function swapPanes(a,b){
+  [state.slots[a], state.slots[b]] = [state.slots[b], state.slots[a]];
+  state.zoom = state.zoom||{}; [state.zoom[a], state.zoom[b]] = [state.zoom[b]||1, state.zoom[a]||1];
+  // force both panes to rebuild so the iframes move with their apps
+  document.querySelectorAll(`.pane[data-i="${a}"],.pane[data-i="${b}"]`).forEach(x=>x.dataset.url='__swap__');
+  setFocus(b); render(); toast(`Swapped panes ${a+1} and ${b+1}`);
+}
 function paneEl(i){ return document.querySelector(`.pane[data-i="${i}"]`); }
-function setLayout(id){ if(!LAYOUTS[id]) return; state.layout=id; state.cols=null; state.rows=null; maxed=-1; if(focus>=LAYOUTS[id].slots) focus=0; render(); }
+function setLayout(id){ if(!LAYOUTS[id]) return; state.activeName=''; state.layout=id; state.cols=null; state.rows=null; maxed=-1; if(focus>=LAYOUTS[id].slots) focus=0; render(); }
 
 /* ---------- top bar ---------- */
 (function buildLayoutButtons(){
@@ -375,6 +422,7 @@ function setLayout(id){ if(!LAYOUTS[id]) return; state.layout=id; state.cols=nul
 $('#hide').addEventListener('click', ()=>{ state.barHidden=true; render(); toast('Alt+H brings the bar back'); });
 $('#peek').addEventListener('click', ()=>{ state.barHidden=false; render(); });
 $('#help').addEventListener('click', ()=>$('#dKeys').showModal());
+$('#openall').addEventListener('click', ()=>{ const urls = state.slots.slice(0, LAYOUTS[state.layout].slots).filter(Boolean); urls.forEach(u=>window.open(u,'_blank','noopener')); toast(urls.length ? `Opened ${urls.length} tab${urls.length>1?'s':''} — if fewer appeared, allow pop-ups for this site` : 'No apps to open'); });
 $('#keysClose').addEventListener('click', ()=>$('#dKeys').close());
 
 /* ---------- saved layouts ---------- */
@@ -382,11 +430,11 @@ function savedList(){ return load(KEY_SAVED) || []; }
 function writeSaved(list){ localStorage.setItem(KEY_SAVED, JSON.stringify(list)); fillSaved(); }
 function fillSaved(){
   const s = $('#saved'); const list = savedList();
-  s.innerHTML = '<option value="">— pick —</option>' + list.map((l,i)=>`<option value="${i}">${esc(l.name)}</option>`).join('');
+  s.innerHTML = `<option value="">${list.length ? '— pick —' : 'No saved layouts yet'}</option>` + list.map((l,i)=>`<option value="${i}">${esc(l.name)}</option>`).join('');
 }
 $('#saved').addEventListener('change', e=>{
   const l = savedList()[+e.target.value]; if(!l) return;
-  state.layout=l.layout; state.cols=l.cols.slice(); state.rows=l.rows.slice(); state.slots=l.slots.slice(); maxed=-1; render();
+  state.layout=l.layout; state.cols=l.cols.slice(); state.rows=l.rows.slice(); state.slots=l.slots.slice(); state.zoom=Object.assign({}, l.zoom||{}); state.activeName=l.name; maxed=-1; render();
   toast(`Layout “${l.name}”`); e.target.value='';
 });
 $('#save').addEventListener('click', ()=>{ $('#saveName').value=''; $('#dSave').showModal(); setTimeout(()=>$('#saveName').focus(),30); });
@@ -394,8 +442,8 @@ $('#dSave').addEventListener('close', ()=>{
   if($('#dSave').returnValue!=='ok') return;
   const name = $('#saveName').value.trim(); if(!name) return;
   const list = savedList().filter(l=>l.name.toLowerCase()!==name.toLowerCase());
-  list.push({name, layout:state.layout, cols:state.cols.slice(), rows:state.rows.slice(), slots:state.slots.slice()});
-  writeSaved(list); toast(`Saved “${name}”`);
+  list.push({name, layout:state.layout, cols:state.cols.slice(), rows:state.rows.slice(), slots:state.slots.slice(), zoom:Object.assign({}, state.zoom||{})});
+  writeSaved(list); state.activeName=name; render(); toast(`Saved “${name}”`);
 });
 $('#manage').addEventListener('click', ()=>{ renderManage(); $('#dManage').showModal(); });
 $('#manageClose').addEventListener('click', ()=>$('#dManage').close());
@@ -406,8 +454,8 @@ function renderManage(){
   ul.onclick = e=>{
     const b = e.target.closest('button'); if(!b) return;
     const list = savedList(); const i=+b.dataset.i;
-    if(b.dataset.a==='del'){ const gone=list.splice(i,1)[0]; writeSaved(list); renderManage(); toast(`Deleted “${gone.name}” — Undo`); undo=()=>{ list.splice(i,0,gone); writeSaved(list); renderManage(); }; }
-    if(b.dataset.a==='over'){ list[i] = {name:list[i].name, layout:state.layout, cols:state.cols.slice(), rows:state.rows.slice(), slots:state.slots.slice()}; writeSaved(list); renderManage(); toast(`Updated “${list[i].name}”`); }
+    if(b.dataset.a==='del'){ const gone=list.splice(i,1)[0]; writeSaved(list); if(state.activeName===gone.name){ state.activeName=''; render(); } renderManage(); toast(`Deleted “${gone.name}” — Undo`); undo=()=>{ list.splice(i,0,gone); writeSaved(list); renderManage(); }; }
+    if(b.dataset.a==='over'){ list[i] = {name:list[i].name, layout:state.layout, cols:state.cols.slice(), rows:state.rows.slice(), slots:state.slots.slice(), zoom:Object.assign({}, state.zoom||{})}; writeSaved(list); state.activeName=list[i].name; render(); renderManage(); toast(`Updated “${list[i].name}”`); }
   };
 }
 let undo=null;
@@ -423,6 +471,9 @@ document.addEventListener('keydown', e=>{
   else if(k==='m'){ toggleMax(focus); e.preventDefault(); }
   else if(k==='r'){ refresh(focus); e.preventDefault(); }
   else if(k==='h'){ state.barHidden=!state.barHidden; render(); e.preventDefault(); }
+  else if(k==='=' || k==='+'){ zoom(focus,+.1); e.preventDefault(); }
+  else if(k==='-'){ zoom(focus,-.1); e.preventDefault(); }
+  else if(k==='0'){ zoom(focus,null); e.preventDefault(); }
 });
 
 /* ---------- go ---------- */
