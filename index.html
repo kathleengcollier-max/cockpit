@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cockpit</title>
+<meta name="app-version" content="1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#1A2B44; --navy-2:#243A5C; --bg:#F6F7FA; --line:#D9DDE5;
+    --ink:#1A2B44; --muted:#6B7382; --red:#B02B34; --white:#fff;
+    --bar-h:36px; --head-h:30px; --gutter:6px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);font-family:"Inter Tight",system-ui,sans-serif;color:var(--ink);overflow:hidden}
+  button,select{font:inherit}
+  button{cursor:pointer;border:0;background:none;color:inherit}
+  button:focus-visible,select:focus-visible{outline:2px solid var(--red);outline-offset:1px}
+
+  /* ---------- top bar ---------- */
+  #bar{height:var(--bar-h);display:flex;align-items:center;gap:14px;padding:0 10px 0 12px;background:var(--navy);color:#fff}
+  #bar.hidden{display:none}
+  #bar .brand{font-weight:600;letter-spacing:.01em;display:flex;align-items:center;gap:8px}
+  #bar .brand .glyph{color:#E4B04A;font-size:15px}
+  #bar .group{display:flex;align-items:center;gap:4px}
+  #bar .label{color:#AEB8CB;font-size:12px;margin-right:2px}
+  .lay{width:30px;height:24px;border-radius:5px;display:grid;place-items:center;color:#C9D1E0}
+  .lay svg{width:18px;height:14px}
+  .lay svg rect{fill:none;stroke:currentColor;stroke-width:1.4}
+  .lay:hover{background:var(--navy-2);color:#fff}
+  .lay.on{background:#fff;color:var(--navy)}
+  #bar select{height:24px;border:1px solid #3B5078;background:var(--navy-2);color:#fff;border-radius:5px;padding:0 6px;font-size:12.5px;max-width:170px}
+  #bar .btn{height:24px;padding:0 9px;border-radius:5px;font-size:12.5px;color:#DCE3F0;border:1px solid #3B5078}
+  #bar .btn:hover{background:var(--navy-2);color:#fff}
+  #bar .spacer{flex:1}
+  #bar .status{font-size:12px;color:#AEB8CB}
+  #bar .status.err{color:#F3B2B7}
+  #peek{position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:20;height:10px;width:64px;background:var(--navy);border-radius:0 0 6px 6px;opacity:.55;display:none}
+  #peek:hover{opacity:1;height:14px}
+  #bar.hidden ~ #peek{display:block}
+
+  /* ---------- grid ---------- */
+  #grid{position:absolute;left:0;right:0;bottom:0;top:var(--bar-h);display:grid;gap:var(--gutter);padding:var(--gutter);background:var(--bg)}
+  #bar.hidden ~ #grid{top:0}
+  .pane{display:flex;flex-direction:column;min-width:0;min-height:0;background:#fff;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .pane.focus{border-color:var(--red);box-shadow:0 0 0 1px var(--red)}
+  .pane.max{position:absolute;inset:var(--gutter);z-index:5}
+  .head{height:var(--head-h);display:flex;align-items:center;gap:6px;padding:0 6px 0 8px;background:var(--navy);color:#fff;flex:none}
+  .head .n{font-size:12px;color:#AEB8CB;width:14px;text-align:center}
+  .head select{height:22px;border:0;background:transparent;color:#fff;font-weight:500;font-size:13px;max-width:240px;padding:0 2px}
+  .head select:hover{background:var(--navy-2);border-radius:4px}
+  .head select option{color:var(--ink);background:#fff}
+  .head .ver{font-size:11px;color:#AEB8CB;padding:1px 6px;border:1px solid #3B5078;border-radius:10px;white-space:nowrap}
+  .head .ver.stale{border-color:#8A5A20;color:#E4B04A}
+  .head .sp{flex:1}
+  .head .ic{width:24px;height:22px;border-radius:4px;display:grid;place-items:center;color:#C9D1E0}
+  .head .ic:hover{background:var(--navy-2);color:#fff}
+  .head .ic svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .pane iframe{flex:1;width:100%;height:100%;border:0;background:#fff}
+  .pane .empty{flex:1;display:grid;place-items:center;color:var(--muted);font-size:14px;text-align:center;padding:24px}
+  .pane .empty b{color:var(--ink);font-weight:500}
+
+  /* gutters (drag handles) */
+  .gut{position:absolute;z-index:6;background:transparent}
+  .gut.v{width:12px;cursor:col-resize;transform:translateX(-6px)}
+  .gut.h{height:12px;cursor:row-resize;transform:translateY(-6px)}
+  .gut:hover,.gut.drag{background:rgba(176,43,52,.18)}
+  body.dragging iframe{pointer-events:none}
+  body.dragging{user-select:none}
+
+  /* ---------- dialogs ---------- */
+  dialog{border:0;border-radius:8px;padding:0;box-shadow:0 12px 40px rgba(26,43,68,.28);width:min(420px,92vw)}
+  dialog::backdrop{background:rgba(26,43,68,.35)}
+  .dl{padding:18px 20px 16px}
+  .dl h2{margin:0 0 10px;font-size:16px;font-weight:600}
+  .dl p{margin:0 0 12px;font-size:13.5px;color:var(--muted);line-height:1.45}
+  .dl input{width:100%;height:32px;border:1px solid var(--line);border-radius:5px;padding:0 9px;font-size:14px}
+  .dl .row{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+  .dl .row button{height:30px;padding:0 12px;border-radius:5px;border:1px solid var(--line);background:#fff}
+  .dl .row button.go{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .dl ul{list-style:none;margin:0;padding:0}
+  .dl li{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px}
+  .dl li:last-child{border-bottom:0}
+  .dl li .nm{flex:1}
+  .dl li button{font-size:12.5px;color:var(--muted);padding:2px 6px;border-radius:4px}
+  .dl li button:hover{background:var(--bg);color:var(--ink)}
+  .dl li button.del:hover{color:var(--red)}
+  .keys{font-size:13.5px;line-height:1.7}
+  .keys kbd{font:12px/1 "Inter Tight",sans-serif;background:var(--bg);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:2px 6px;margin-right:4px}
+
+  #toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:8px 14px;border-radius:6px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:30}
+  #toast.show{opacity:1}
+
+  @media (max-width:700px){
+    #bar .label,#bar .status{display:none}
+    #grid{grid-template:1fr / 1fr !important}
+    .pane{display:none;grid-area:auto !important}.pane.mobile-on{display:flex}
+    .gut{display:none}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <div class="brand"><span class="glyph">✦</span>Cockpit</div>
+  <div class="group" id="layouts"><span class="label">Layout</span></div>
+  <div class="group">
+    <span class="label">Saved</span>
+    <select id="saved"><option value="">— pick —</option></select>
+    <button class="btn" id="save">Save current…</button>
+    <button class="btn" id="manage">Manage</button>
+  </div>
+  <div class="spacer"></div>
+  <span class="status" id="status">Loading app list…</span>
+  <button class="btn" id="help">Keys</button>
+  <button class="btn" id="hide" title="Hide this bar (Alt+H)">Hide bar</button>
+</div>
+<div id="peek" title="Show bar (Alt+H)"></div>
+<div id="grid"></div>
+<div id="toast"></div>
+
+<dialog id="dSave"><form class="dl" method="dialog">
+  <h2>Save this layout</h2>
+  <p>Saves the arrangement, the divider positions, and which app is in each pane.</p>
+  <input id="saveName" placeholder="Morning, Month-end, Meeting prep…" maxlength="40" autocomplete="off">
+  <div class="row"><button value="cancel">Cancel</button><button class="go" value="ok" id="saveOk">Save layout</button></div>
+</form></dialog>
+
+<dialog id="dManage"><div class="dl">
+  <h2>Saved layouts</h2>
+  <ul id="savedList"></ul>
+  <div class="row"><button id="manageClose">Close</button></div>
+</div></dialog>
+
+<dialog id="dKeys"><div class="dl">
+  <h2>Keyboard shortcuts</h2>
+  <p>Shortcuts work when the cockpit itself has focus — click any pane header or the top bar first. Once you click inside an app, that app has the keyboard.</p>
+  <div class="keys">
+    <div><kbd>Alt</kbd><kbd>1</kbd>–<kbd>4</kbd> focus a pane</div>
+    <div><kbd>Alt</kbd><kbd>M</kbd> maximize the focused pane / restore</div>
+    <div><kbd>Esc</kbd> restore from maximized</div>
+    <div><kbd>Alt</kbd><kbd>R</kbd> refresh the focused pane</div>
+    <div><kbd>Alt</kbd><kbd>H</kbd> hide or show the top bar</div>
+  </div>
+  <div class="row"><button id="keysClose">Close</button></div>
+</div></dialog>
+
+<script>
+/* ============================================================
+   Cockpit 1.0
+   Panes of your own apps, side by side. App list comes from
+   App Catalog (catalog.cockpit_apps view); falls back to the
+   snapshot below if the view isn't reachable.
+   ============================================================ */
+const VERSION = document.querySelector('meta[name="app-version"]').content;
+const SB_URL  = 'https://kyzzaywlmoohudzynnzq.supabase.co';
+const SB_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt5enpheXdsbW9vaHVkenlubnpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MzE4OTcsImV4cCI6MjEwMjIwNzg5N30.KYEI2WeSURPPIyyNUmCvgrqdBTTEIfft9rtrvczeBmU';
+const KEY_STATE = 'cockpit:v1:state';
+const KEY_SAVED = 'cockpit:v1:saved';
+const KEY_APPS  = 'cockpit:v1:apps';
+
+// Snapshot of App Catalog as of 2026-09-11 — only used if the live view can't be read.
+const FALLBACK_APPS = [
+  {name:'Helm Recurring Tasks', url:'https://helm.kathleengrawcollier.com/', version:'2.8'},
+  {name:'Brain Dump', url:'https://braindump.kathleengrawcollier.com/', version:'2.4'},
+  {name:'Get Smart', url:'https://getsmart.myjohnstonesupplygroup.com', version:'3.2'},
+  {name:'App Catalog', url:'https://apps.myjohnstonesupplygroup.com', version:'2.73'},
+  {name:'legacy meetings', url:'https://meetings.myjohnstonesupplygroup.com/', version:'v1.6'},
+  {name:'Kathleen Vault', url:'https://kvault.myjohnstonesupplygroup.com', version:'2.3'},
+  {name:'Pulse/CRM', url:'https://pulse.myjohnstonesupplygroup.com/', version:'3.26'},
+  {name:'Sales Dashboard', url:'https://dashboards.myjohnstonesupplygroup.com/', version:'v1.2'},
+  {name:'People Dashboard', url:'https://people.myjohnstonesupplygroup.com/', version:'2.84'},
+  {name:'Accounting Dashboard', url:'https://accounting.myjohnstonesupplygroup.com/', version:''},
+  {name:'Freight Hub', url:'https://freight.myjohnstonesupplygroup.com', version:'1.24'},
+  {name:'Marketing Planner', url:'https://marketing.myjohnstonesupplygroup.com/', version:'1.0'},
+];
+
+/* Layouts. Each has a grid template, slot count, and which splits are draggable.
+   cols/rows are fraction arrays that the gutters edit. */
+const LAYOUTS = {
+  one:   {label:'One pane',          slots:1, cols:[1],       rows:[1],
+          icon:[[0,0,18,14]]},
+  two:   {label:'Two across',        slots:2, cols:[.5,.5],   rows:[1],
+          icon:[[0,0,8.5,14],[9.5,0,8.5,14]]},
+  stack: {label:'Big left, two right',slots:3, cols:[.6,.4],  rows:[.5,.5],
+          icon:[[0,0,10,14],[11,0,7,6.5],[11,7.5,7,6.5]]},
+  three: {label:'Three across',      slots:3, cols:[1/3,1/3,1/3], rows:[1],
+          icon:[[0,0,5.4,14],[6.3,0,5.4,14],[12.6,0,5.4,14]]},
+  quad:  {label:'2 × 2',             slots:4, cols:[.5,.5],   rows:[.5,.5],
+          icon:[[0,0,8.5,6.5],[9.5,0,8.5,6.5],[0,7.5,8.5,6.5],[9.5,7.5,8.5,6.5]]},
+};
+for (const [id,L] of Object.entries(LAYOUTS)) L.id = id;
+LAYOUTS.one.rowsAreas   = ['a'];
+LAYOUTS.two.rowsAreas   = ['a b'];
+LAYOUTS.stack.rowsAreas = ['a b','a c'];
+LAYOUTS.three.rowsAreas = ['a b c'];
+LAYOUTS.quad.rowsAreas  = ['a b','c d'];
+
+/* ---------- state ---------- */
+const $ = s => document.querySelector(s);
+let apps = [];
+let state = load(KEY_STATE) || {
+  layout:'quad', cols:null, rows:null,
+  slots:['https://helm.kathleengrawcollier.com/','https://braindump.kathleengrawcollier.com/',
+         'https://getsmart.myjohnstonesupplygroup.com','https://apps.myjohnstonesupplygroup.com'],
+  barHidden:false
+};
+let focus = 0, maxed = -1;
+
+function load(k){ try{ return JSON.parse(localStorage.getItem(k)); }catch(e){ return null; } }
+function persist(){ localStorage.setItem(KEY_STATE, JSON.stringify(state)); }
+function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),1800); }
+const norm = u => (u||'').replace(/\/+$/,'').toLowerCase();
+
+/* ---------- app list ---------- */
+async function loadApps(){
+  const cached = load(KEY_APPS);
+  if (cached && cached.length) apps = cached;
+  else apps = FALLBACK_APPS.slice();
+  try{
+    const r = await fetch(`${SB_URL}/rest/v1/cockpit_apps?select=name,url,version&order=sort_order.asc,name.asc`,{
+      headers:{apikey:SB_KEY, Authorization:'Bearer '+SB_KEY, 'Accept-Profile':'catalog'}
+    });
+    if(!r.ok) throw new Error(r.status+' '+r.statusText);
+    const rows = await r.json();
+    const clean = rows.filter(a => /^https?:\/\//i.test(a.url||''));
+    if(!clean.length) throw new Error('view returned no apps');
+    apps = clean; localStorage.setItem(KEY_APPS, JSON.stringify(apps));
+    setStatus(`${apps.length} apps from App Catalog`);
+  }catch(e){
+    setStatus(cached ? 'App Catalog unreachable — using last list' : 'App Catalog view not found — using built-in list', true);
+    console.warn('cockpit_apps view:', e.message);
+  }
+  render();
+}
+function setStatus(m, err){ const s=$('#status'); s.textContent=m; s.classList.toggle('err',!!err); }
+function appFor(url){ return apps.find(a => norm(a.url)===norm(url)); }
+
+/* ---------- render ---------- */
+function render(){
+  const L = LAYOUTS[state.layout] || LAYOUTS.quad;
+  if(!state.cols || state.cols.length!==L.cols.length) state.cols = L.cols.slice();
+  if(!state.rows || state.rows.length!==L.rows.length) state.rows = L.rows.slice();
+  const g = $('#grid');
+  g.style.gridTemplateColumns = state.cols.map(f=>`${f}fr`).join(' ');
+  g.style.gridTemplateRows    = state.rows.map(f=>`${f}fr`).join(' ');
+  g.style.gridTemplateAreas   = L.rowsAreas.map(r=>`"${r}"`).join(' ');
+
+  // keep existing iframes where the slot's app hasn't changed (no reload on layout switch)
+  const old = {}; g.querySelectorAll('.pane').forEach(p => old[p.dataset.i] = p);
+  g.innerHTML = '';
+  for(let i=0;i<L.slots;i++){
+    const url = state.slots[i] || '';
+    let p = old[i];
+    if(!(p && p.dataset.url===url)) p = buildPane(i,url);
+    p.style.gridArea = 'abcd'[i];
+    p.classList.toggle('focus', i===focus);
+    p.classList.toggle('max', i===maxed);
+    p.classList.toggle('mobile-on', i===focus);
+    p.querySelector('.n').textContent = i+1;
+    fillSelect(p.querySelector('select'), url);
+    const app = appFor(url), v = p.querySelector('.ver');
+    v.textContent = app && app.version ? app.version : ''; v.style.display = v.textContent ? '' : 'none';
+    g.appendChild(p);
+  }
+  buildGutters(L);
+  // layout buttons
+  document.querySelectorAll('.lay').forEach(b=>b.classList.toggle('on', b.dataset.id===state.layout));
+  $('#bar').classList.toggle('hidden', !!state.barHidden);
+  persist();
+}
+
+function buildPane(i,url){
+  const p = document.createElement('div');
+  p.className='pane'; p.dataset.i=i; p.dataset.url=url;
+  const app = appFor(url);
+  p.innerHTML = `
+    <div class="head">
+      <span class="n">${i+1}</span>
+      <select title="Choose an app for this pane"></select>
+      <span class="ver" title="Version recorded in App Catalog">${app && app.version ? esc(app.version) : ''}</span>
+      <span class="sp"></span>
+      <button class="ic" data-a="refresh" title="Refresh this pane (Alt+R)"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></svg></button>
+      <button class="ic" data-a="open" title="Open in its own tab"><svg viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M18 14v6H4V6h6"/></svg></button>
+      <button class="ic" data-a="max" title="Maximize / restore (Alt+M)"><svg viewBox="0 0 24 24"><path d="M4 9V4h5"/><path d="M20 15v5h-5"/><path d="M4 4l6 6"/><path d="M20 20l-6-6"/></svg></button>
+    </div>`;
+  if(url){
+    const f = document.createElement('iframe');
+    f.src = url; f.setAttribute('allow','clipboard-read; clipboard-write; fullscreen');
+    f.title = app ? app.name : url;
+    p.appendChild(f);
+  }else{
+    p.insertAdjacentHTML('beforeend','<div class="empty"><div><b>Empty pane</b><br>Pick an app from the menu above.</div></div>');
+  }
+  if(!app || !app.version) p.querySelector('.ver').style.display='none';
+  p.querySelector('.head').addEventListener('mousedown', ()=>setFocus(i));
+  p.querySelector('select').addEventListener('change', e=>{ state.slots[i]=e.target.value; setFocus(i); render(); });
+  p.querySelector('.head').addEventListener('click', e=>{
+    const b = e.target.closest('button'); if(!b) return;
+    ({refresh:()=>refresh(i), open:()=>openTab(i), max:()=>toggleMax(i)})[b.dataset.a]();
+  });
+  return p;
+}
+function esc(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function fillSelect(sel, url){
+  const opts = ['<option value="">— choose an app —</option>']
+    .concat(apps.map(a=>`<option value="${esc(a.url)}"${norm(a.url)===norm(url)?' selected':''}>${esc(a.name)}</option>`));
+  if(url && !appFor(url)) opts.push(`<option value="${esc(url)}" selected>${esc(url)}</option>`);
+  sel.innerHTML = opts.join('');
+}
+
+/* ---------- gutters ---------- */
+function buildGutters(L){
+  const g = $('#grid');
+  const rect = ()=>g.getBoundingClientRect();
+  const pad = 6;
+  // vertical gutters between columns
+  for(let c=0;c<state.cols.length-1;c++){
+    const d = document.createElement('div'); d.className='gut v';
+    d.style.top = pad+'px'; d.style.bottom = pad+'px';
+    d.style.left = (pad + (rect().width-2*pad) * sum(state.cols,c+1)) + 'px';
+    dragify(d, 'cols', c, ()=>rect().width-2*pad);
+    g.appendChild(d);
+  }
+  for(let r=0;r<state.rows.length-1;r++){
+    const d = document.createElement('div'); d.className='gut h';
+    d.style.left = pad+'px'; d.style.right = pad+'px';
+    // in 'stack', the row split only applies to the right column
+    if(L.id==='stack'){ d.style.left = (pad + (rect().width-2*pad)*state.cols[0]) + 'px'; }
+    d.style.top = (pad + (rect().height-2*pad) * sum(state.rows,r+1)) + 'px';
+    dragify(d, 'rows', r, ()=>rect().height-2*pad);
+    g.appendChild(d);
+  }
+}
+function sum(a,n){ let s=0; for(let i=0;i<n;i++) s+=a[i]; return s/a.reduce((x,y)=>x+y,0); }
+function dragify(el, axis, idx, sizeFn){
+  el.addEventListener('pointerdown', e=>{
+    e.preventDefault(); el.setPointerCapture(e.pointerId);
+    document.body.classList.add('dragging'); el.classList.add('drag');
+    const arr = state[axis]; const total = arr.reduce((x,y)=>x+y,0);
+    const start = axis==='cols'?e.clientX:e.clientY;
+    const a0 = arr[idx], b0 = arr[idx+1], size = sizeFn();
+    const move = ev=>{
+      const d = ((axis==='cols'?ev.clientX:ev.clientY)-start)/size*total;
+      const a = Math.max(.12*total, Math.min(a0+b0-.12*total, a0+d));
+      arr[idx]=a; arr[idx+1]=a0+b0-a; render();
+    };
+    const up = ()=>{ el.releasePointerCapture(e.pointerId); document.body.classList.remove('dragging'); el.classList.remove('drag'); el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up); persist(); };
+    el.addEventListener('pointermove',move); el.addEventListener('pointerup',up);
+  });
+}
+window.addEventListener('resize', ()=>{ document.querySelectorAll('.gut').forEach(g=>g.remove()); buildGutters(LAYOUTS[state.layout]); });
+
+/* ---------- actions ---------- */
+function setFocus(i){ focus=i; document.querySelectorAll('.pane').forEach(p=>{ p.classList.toggle('focus', +p.dataset.i===i); p.classList.toggle('mobile-on', +p.dataset.i===i); }); }
+function refresh(i){ const f = paneEl(i)?.querySelector('iframe'); if(f){ f.src = f.src; toast(`Refreshed pane ${i+1}`); } }
+function openTab(i){ const u = state.slots[i]; if(u) window.open(u,'_blank','noopener'); }
+function toggleMax(i){ maxed = (maxed===i) ? -1 : i; setFocus(i); render(); }
+function paneEl(i){ return document.querySelector(`.pane[data-i="${i}"]`); }
+function setLayout(id){ if(!LAYOUTS[id]) return; state.layout=id; state.cols=null; state.rows=null; maxed=-1; if(focus>=LAYOUTS[id].slots) focus=0; render(); }
+
+/* ---------- top bar ---------- */
+(function buildLayoutButtons(){
+  const host = $('#layouts');
+  for(const [id,L] of Object.entries(LAYOUTS)){
+    const b = document.createElement('button'); b.className='lay'; b.dataset.id=id; b.title=L.label;
+    b.innerHTML = `<svg viewBox="0 0 18 14">${L.icon.map(r=>`<rect x="${r[0]+.7}" y="${r[1]+.7}" width="${r[2]-1.4}" height="${r[3]-1.4}" rx="1"/>`).join('')}</svg>`;
+    b.addEventListener('click', ()=>setLayout(id));
+    host.appendChild(b);
+  }
+})();
+$('#hide').addEventListener('click', ()=>{ state.barHidden=true; render(); toast('Alt+H brings the bar back'); });
+$('#peek').addEventListener('click', ()=>{ state.barHidden=false; render(); });
+$('#help').addEventListener('click', ()=>$('#dKeys').showModal());
+$('#keysClose').addEventListener('click', ()=>$('#dKeys').close());
+
+/* ---------- saved layouts ---------- */
+function savedList(){ return load(KEY_SAVED) || []; }
+function writeSaved(list){ localStorage.setItem(KEY_SAVED, JSON.stringify(list)); fillSaved(); }
+function fillSaved(){
+  const s = $('#saved'); const list = savedList();
+  s.innerHTML = '<option value="">— pick —</option>' + list.map((l,i)=>`<option value="${i}">${esc(l.name)}</option>`).join('');
+}
+$('#saved').addEventListener('change', e=>{
+  const l = savedList()[+e.target.value]; if(!l) return;
+  state.layout=l.layout; state.cols=l.cols.slice(); state.rows=l.rows.slice(); state.slots=l.slots.slice(); maxed=-1; render();
+  toast(`Layout “${l.name}”`); e.target.value='';
+});
+$('#save').addEventListener('click', ()=>{ $('#saveName').value=''; $('#dSave').showModal(); setTimeout(()=>$('#saveName').focus(),30); });
+$('#dSave').addEventListener('close', ()=>{
+  if($('#dSave').returnValue!=='ok') return;
+  const name = $('#saveName').value.trim(); if(!name) return;
+  const list = savedList().filter(l=>l.name.toLowerCase()!==name.toLowerCase());
+  list.push({name, layout:state.layout, cols:state.cols.slice(), rows:state.rows.slice(), slots:state.slots.slice()});
+  writeSaved(list); toast(`Saved “${name}”`);
+});
+$('#manage').addEventListener('click', ()=>{ renderManage(); $('#dManage').showModal(); });
+$('#manageClose').addEventListener('click', ()=>$('#dManage').close());
+function renderManage(){
+  const list = savedList(); const ul = $('#savedList');
+  ul.innerHTML = list.length ? list.map((l,i)=>`<li><span class="nm">${esc(l.name)}</span><span style="color:var(--muted);font-size:12px">${LAYOUTS[l.layout]?.label||''}</span><button data-i="${i}" data-a="over">Overwrite</button><button class="del" data-i="${i}" data-a="del">Delete</button></li>`).join('')
+    : '<li style="color:var(--muted)">Nothing saved yet. Arrange your panes, then use “Save current…”.</li>';
+  ul.onclick = e=>{
+    const b = e.target.closest('button'); if(!b) return;
+    const list = savedList(); const i=+b.dataset.i;
+    if(b.dataset.a==='del'){ const gone=list.splice(i,1)[0]; writeSaved(list); renderManage(); toast(`Deleted “${gone.name}” — Undo`); undo=()=>{ list.splice(i,0,gone); writeSaved(list); renderManage(); }; }
+    if(b.dataset.a==='over'){ list[i] = {name:list[i].name, layout:state.layout, cols:state.cols.slice(), rows:state.rows.slice(), slots:state.slots.slice()}; writeSaved(list); renderManage(); toast(`Updated “${list[i].name}”`); }
+  };
+}
+let undo=null;
+$('#toast').style.pointerEvents='auto';
+$('#toast').addEventListener('click', ()=>{ if(undo){ undo(); undo=null; toast('Restored'); } });
+
+/* ---------- keyboard ---------- */
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape' && maxed>=0){ maxed=-1; render(); return; }
+  if(!e.altKey || e.ctrlKey || e.metaKey) return;
+  const k = e.key.toLowerCase();
+  if(k>='1' && k<='4'){ const i=+k-1; if(i<LAYOUTS[state.layout].slots){ setFocus(i); paneEl(i)?.querySelector('iframe')?.focus(); e.preventDefault(); } }
+  else if(k==='m'){ toggleMax(focus); e.preventDefault(); }
+  else if(k==='r'){ refresh(focus); e.preventDefault(); }
+  else if(k==='h'){ state.barHidden=!state.barHidden; render(); e.preventDefault(); }
+});
+
+/* ---------- go ---------- */
+fillSaved();
+render();
+loadApps();
+</script>
+</body>
+</html>
