@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Cockpit</title>
-<meta name="app-version" content="1.4">
+<meta name="app-version" content="1.5">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231A2B44'/%3E%3Cpath fill='%23fff' d='M52 32c0-2.2-1.8-4-4-4H35L24 12h-5l5 16H13l-4-6H5l3 10-3 10h4l4-6h11l-5 16h5l11-16h13c2.2 0 4-1.8 4-4z'/%3E%3Ccircle cx='50' cy='32' r='3' fill='%23B02B34'/%3E%3C/svg%3E">
 <link rel="icon" type="image/png" sizes="128x128" href="favicon.png">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -140,9 +140,19 @@
   <div class="row"><button value="cancel">Cancel</button><button class="go" value="ok" id="saveOk">Save layout</button></div>
 </form></dialog>
 
+<dialog id="dUrl"><form class="dl" method="dialog">
+  <h2>Open a web address in this pane</h2>
+  <p>Any site works if it allows being embedded. Many large services (Google, Microsoft 365, banks) don't — the pane will stay blank or say “refused to connect.” Your own apps, Jotform, and most vendor portals are fine.</p>
+  <input id="urlIn" placeholder="https://…" autocomplete="off" inputmode="url">
+  <input id="urlName" placeholder="Name for the menu (optional)" maxlength="40" autocomplete="off" style="margin-top:8px">
+  <div class="row"><button value="cancel">Cancel</button><button class="go" value="ok">Open</button></div>
+</form></dialog>
+
 <dialog id="dManage"><div class="dl">
   <h2>Saved layouts</h2>
   <ul id="savedList"></ul>
+  <h2 style="margin-top:18px">My links</h2>
+  <ul id="linkList"></ul>
   <div class="row"><button id="manageClose">Close</button></div>
 </div></dialog>
 
@@ -162,7 +172,8 @@
 
 <script>
 /* ============================================================
-   Cockpit 1.4
+   Cockpit 1.5
+   1.5 — "Custom URL…" in every pane dropdown; typed addresses are remembered under "My links" (Manage lets you remove them). Panes note when a site refuses to be framed.
    1.4 — favicon actually shows (the 1.2 tag was malformed); PNG fallback added.
    1.3 — drag a pane header onto another pane to swap them; "Open all in tabs" in the bar; the active saved layout shows in the tab title.
    1.2 — airplane favicon.
@@ -178,6 +189,8 @@ const SB_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsIn
 const KEY_STATE = 'cockpit:v1:state';
 const KEY_SAVED = 'cockpit:v1:saved';
 const KEY_APPS  = 'cockpit:v1:apps';
+const KEY_LINKS = 'cockpit:v1:links';
+const CUSTOM = '__custom__';
 
 // Snapshot of App Catalog as of 2026-09-11 — only used if the live view can't be read.
 const FALLBACK_APPS = [
@@ -316,7 +329,7 @@ function buildPane(i,url){
     f.title = app ? app.name : url;
     body.appendChild(f); p.appendChild(body);
   }else{
-    p.insertAdjacentHTML('beforeend','<div class="empty"><div><b>Empty pane</b><br>Pick an app from the menu above.</div></div>');
+    p.insertAdjacentHTML('beforeend','<div class="empty"><div><b>Empty pane</b><br>Pick an app, or choose “Custom URL…” to type an address.</div></div>');
   }
   if(!app || !app.version) p.querySelector('.ver').style.display='none';
   const head = p.querySelector('.head');
@@ -328,7 +341,10 @@ function buildPane(i,url){
   p.addEventListener('dragleave', ()=>p.classList.remove('over'));
   p.addEventListener('drop', e=>{ e.preventDefault(); const from=+e.dataTransfer.getData('text/plain'); p.classList.remove('over'); if(!isNaN(from) && from!==i) swapPanes(from,i); });
   p.querySelectorAll('.head select,.head button').forEach(el=>el.addEventListener('mousedown', e=>e.stopPropagation()));
-  p.querySelector('select').addEventListener('change', e=>{ state.activeName=''; state.slots[i]=e.target.value; setFocus(i); render(); });
+  p.querySelector('select').addEventListener('change', e=>{
+    if(e.target.value===CUSTOM){ askUrl(i); fillSelect(e.target, state.slots[i]||''); return; }
+    state.activeName=''; state.slots[i]=e.target.value; setFocus(i); render();
+  });
   p.querySelector('.head').addEventListener('click', e=>{
     const b = e.target.closest('button'); if(!b) return;
     ({refresh:()=>refresh(i), open:()=>openTab(i), max:()=>toggleMax(i), zin:()=>zoom(i,+.1), zout:()=>zoom(i,-.1), zreset:()=>zoom(i,null)})[b.dataset.a]();
@@ -337,9 +353,13 @@ function buildPane(i,url){
 }
 function esc(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function fillSelect(sel, url){
-  const opts = ['<option value="">— choose an app —</option>']
-    .concat(apps.map(a=>`<option value="${esc(a.url)}"${norm(a.url)===norm(url)?' selected':''}>${esc(a.name)}</option>`));
-  if(url && !appFor(url)) opts.push(`<option value="${esc(url)}" selected>${esc(url)}</option>`);
+  const opt = (v,label,cur)=>`<option value="${esc(v)}"${norm(v)===norm(cur)?' selected':''}>${esc(label)}</option>`;
+  const opts = ['<option value="">— choose an app —</option>', '<optgroup label="Apps">']
+    .concat(apps.map(a=>opt(a.url,a.name,url)), ['</optgroup>']);
+  const links = myLinks();
+  if(links.length) opts.push('<optgroup label="My links">', ...links.map(l=>opt(l.url,l.name,url)), '</optgroup>');
+  if(url && !appFor(url) && !links.some(l=>norm(l.url)===norm(url))) opts.push(opt(url,url,url));
+  opts.push(`<option value="${CUSTOM}">Custom URL…</option>`);
   sel.innerHTML = opts.join('');
 }
 
@@ -447,7 +467,7 @@ $('#dSave').addEventListener('close', ()=>{
   list.push({name, layout:state.layout, cols:state.cols.slice(), rows:state.rows.slice(), slots:state.slots.slice(), zoom:Object.assign({}, state.zoom||{})});
   writeSaved(list); state.activeName=name; render(); toast(`Saved “${name}”`);
 });
-$('#manage').addEventListener('click', ()=>{ renderManage(); $('#dManage').showModal(); });
+$('#manage').addEventListener('click', ()=>{ renderManage(); renderLinks(); $('#dManage').showModal(); });
 $('#manageClose').addEventListener('click', ()=>$('#dManage').close());
 function renderManage(){
   const list = savedList(); const ul = $('#savedList');
@@ -463,6 +483,29 @@ function renderManage(){
 let undo=null;
 $('#toast').style.pointerEvents='auto';
 $('#toast').addEventListener('click', ()=>{ if(undo){ undo(); undo=null; toast('Restored'); } });
+
+/* ---------- custom URLs ---------- */
+function myLinks(){ return load(KEY_LINKS) || []; }
+function writeLinks(list){ localStorage.setItem(KEY_LINKS, JSON.stringify(list)); }
+function askUrl(i){
+  const d = $('#dUrl'); $('#urlIn').value=''; $('#urlName').value=''; d.dataset.pane=i; d.showModal(); setTimeout(()=>$('#urlIn').focus(),30);
+}
+$('#dUrl').addEventListener('close', ()=>{
+  const d=$('#dUrl'); if(d.returnValue!=='ok') return;
+  let u = $('#urlIn').value.trim(); if(!u) return;
+  if(!/^https?:\/\//i.test(u)) u = 'https://'+u;
+  try{ new URL(u); }catch(e){ toast('That doesn\u2019t look like a web address'); return; }
+  const name = $('#urlName').value.trim() || new URL(u).hostname.replace(/^www\./,'');
+  const list = myLinks().filter(l=>norm(l.url)!==norm(u)); list.push({name,url:u}); writeLinks(list);
+  const i = +d.dataset.pane; state.activeName=''; state.slots[i]=u; setFocus(i); render();
+  toast(`Loaded ${name} — if the pane stays blank, that site refuses to be framed`);
+});
+function renderLinks(){
+  const list = myLinks(); const ul = $('#linkList');
+  ul.innerHTML = list.length ? list.map((l,i)=>`<li><span class="nm">${esc(l.name)}<br><span style="color:var(--muted);font-size:12px">${esc(l.url)}</span></span><button class="del" data-i="${i}">Remove</button></li>`).join('')
+    : '<li style="color:var(--muted)">No custom links yet — choose “Custom URL…” in any pane.</li>';
+  ul.onclick = e=>{ const b=e.target.closest('button'); if(!b) return; const list=myLinks(); const gone=list.splice(+b.dataset.i,1)[0]; writeLinks(list); renderLinks(); render(); toast(`Removed ${gone.name} — Undo`); undo=()=>{ list.push(gone); writeLinks(list); renderLinks(); render(); }; };
+}
 
 /* ---------- keyboard ---------- */
 document.addEventListener('keydown', e=>{
