@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Cockpit</title>
-<meta name="app-version" content="1.5">
+<meta name="app-version" content="1.6">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231A2B44'/%3E%3Cpath fill='%23fff' d='M52 32c0-2.2-1.8-4-4-4H35L24 12h-5l5 16H13l-4-6H5l3 10-3 10h4l4-6h11l-5 16h5l11-16h13c2.2 0 4-1.8 4-4z'/%3E%3Ccircle cx='50' cy='32' r='3' fill='%23B02B34'/%3E%3C/svg%3E">
 <link rel="icon" type="image/png" sizes="128x128" href="favicon.png">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -172,7 +172,8 @@
 
 <script>
 /* ============================================================
-   Cockpit 1.5
+   Cockpit 1.6
+   1.6 — pane dropdowns list apps (and My links) alphabetically.
    1.5 — "Custom URL…" in every pane dropdown; typed addresses are remembered under "My links" (Manage lets you remove them). Panes note when a site refuses to be framed.
    1.4 — favicon actually shows (the 1.2 tag was malformed); PNG fallback added.
    1.3 — drag a pane header onto another pane to swap them; "Open all in tabs" in the bar; the active saved layout shows in the tab title.
@@ -248,17 +249,17 @@ const norm = u => (u||'').replace(/\/+$/,'').toLowerCase();
 /* ---------- app list ---------- */
 async function loadApps(){
   const cached = load(KEY_APPS);
-  if (cached && cached.length) apps = cached;
-  else apps = FALLBACK_APPS.slice();
+  if (cached && cached.length) apps = cached.slice().sort(byName);
+  else apps = FALLBACK_APPS.slice().sort(byName);
   try{
-    const r = await fetch(`${SB_URL}/rest/v1/cockpit_apps?select=name,url,version&order=sort_order.asc,name.asc`,{
+    const r = await fetch(`${SB_URL}/rest/v1/cockpit_apps?select=name,url,version&order=name.asc`,{
       headers:{apikey:SB_KEY, Authorization:'Bearer '+SB_KEY, 'Accept-Profile':'catalog'}
     });
     if(!r.ok) throw new Error(r.status+' '+r.statusText);
     const rows = await r.json();
     const clean = rows.filter(a => /^https?:\/\//i.test(a.url||''));
     if(!clean.length) throw new Error('view returned no apps');
-    apps = clean; localStorage.setItem(KEY_APPS, JSON.stringify(apps));
+    apps = clean.sort(byName); localStorage.setItem(KEY_APPS, JSON.stringify(apps));
     setStatus(`${apps.length} apps from App Catalog`);
   }catch(e){
     setStatus(cached ? 'App Catalog unreachable — using last list' : 'App Catalog view not found — using built-in list', true);
@@ -267,6 +268,7 @@ async function loadApps(){
   render();
 }
 function setStatus(m, err){ const s=$('#status'); s.textContent=m; s.classList.toggle('err',!!err); }
+const byName = (a,b)=>a.name.localeCompare(b.name, undefined, {sensitivity:'base', numeric:true});
 function appFor(url){ return apps.find(a => norm(a.url)===norm(url)); }
 
 /* ---------- render ---------- */
@@ -356,7 +358,7 @@ function fillSelect(sel, url){
   const opt = (v,label,cur)=>`<option value="${esc(v)}"${norm(v)===norm(cur)?' selected':''}>${esc(label)}</option>`;
   const opts = ['<option value="">— choose an app —</option>', '<optgroup label="Apps">']
     .concat(apps.map(a=>opt(a.url,a.name,url)), ['</optgroup>']);
-  const links = myLinks();
+  const links = myLinks().slice().sort(byName);
   if(links.length) opts.push('<optgroup label="My links">', ...links.map(l=>opt(l.url,l.name,url)), '</optgroup>');
   if(url && !appFor(url) && !links.some(l=>norm(l.url)===norm(url))) opts.push(opt(url,url,url));
   opts.push(`<option value="${CUSTOM}">Custom URL…</option>`);
