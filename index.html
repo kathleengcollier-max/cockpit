@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Cockpit</title>
-<meta name="app-version" content="1.7">
+<meta name="app-version" content="1.8">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231A2B44'/%3E%3Cpath fill='%23fff' d='M52 32c0-2.2-1.8-4-4-4H35L24 12h-5l5 16H13l-4-6H5l3 10-3 10h4l4-6h11l-5 16h5l11-16h13c2.2 0 4-1.8 4-4z'/%3E%3Ccircle cx='50' cy='32' r='3' fill='%23B02B34'/%3E%3C/svg%3E">
 <link rel="icon" type="image/png" sizes="128x128" href="favicon.png">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -116,6 +116,7 @@
 
 <div id="bar">
   <div class="brand"><span class="glyph">✦</span>Cockpit</div>
+  <span class="status" id="active" style="color:#fff;font-weight:500"></span>
   <div class="group" id="layouts"><span class="label">Layout</span></div>
   <div class="group">
     <span class="label">Saved</span>
@@ -172,7 +173,8 @@
 
 <script>
 /* ============================================================
-   Cockpit 1.7
+   Cockpit 1.8
+   1.8 — browser tab shows just the layout name (no "Cockpit —" prefix), and the active name shows in the top bar.
    1.7 — divider dragging fixed: it only moved a hair and then stuck, because the divider rebuilt itself mid-drag.
    1.6 — pane dropdowns list apps (and My links) alphabetically.
    1.5 — "Custom URL…" in every pane dropdown; typed addresses are remembered under "My links" (Manage lets you remove them). Panes note when a site refuses to be framed.
@@ -304,7 +306,8 @@ function render(){
   // layout buttons
   document.querySelectorAll('.lay').forEach(b=>b.classList.toggle('on', b.dataset.id===state.layout));
   $('#bar').classList.toggle('hidden', !!state.barHidden);
-  document.title = state.activeName ? `Cockpit — ${state.activeName}` : 'Cockpit';
+  document.title = state.activeName || 'Cockpit';
+  $('#active').textContent = state.activeName || '';
   persist();
 }
 
