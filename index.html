@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Cockpit</title>
-<meta name="app-version" content="1.6">
+<meta name="app-version" content="1.7">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231A2B44'/%3E%3Cpath fill='%23fff' d='M52 32c0-2.2-1.8-4-4-4H35L24 12h-5l5 16H13l-4-6H5l3 10-3 10h4l4-6h11l-5 16h5l11-16h13c2.2 0 4-1.8 4-4z'/%3E%3Ccircle cx='50' cy='32' r='3' fill='%23B02B34'/%3E%3C/svg%3E">
 <link rel="icon" type="image/png" sizes="128x128" href="favicon.png">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -172,7 +172,8 @@
 
 <script>
 /* ============================================================
-   Cockpit 1.6
+   Cockpit 1.7
+   1.7 — divider dragging fixed: it only moved a hair and then stuck, because the divider rebuilt itself mid-drag.
    1.6 — pane dropdowns list apps (and My links) alphabetically.
    1.5 — "Custom URL…" in every pane dropdown; typed addresses are remembered under "My links" (Manage lets you remove them). Panes note when a site refuses to be framed.
    1.4 — favicon actually shows (the 1.2 tag was malformed); PNG fallback added.
@@ -388,6 +389,13 @@ function buildGutters(L){
     g.appendChild(d);
   }
 }
+function applyTracks(){
+  const g = $('#grid'), L = LAYOUTS[state.layout], r = g.getBoundingClientRect(), pad = 6;
+  g.style.gridTemplateColumns = state.cols.map(f=>`${f}fr`).join(' ');
+  g.style.gridTemplateRows    = state.rows.map(f=>`${f}fr`).join(' ');
+  g.querySelectorAll('.gut.v').forEach((d,c)=>{ d.style.left = (pad + (r.width-2*pad)*sum(state.cols,c+1)) + 'px'; });
+  g.querySelectorAll('.gut.h').forEach((d,i)=>{ d.style.top = (pad + (r.height-2*pad)*sum(state.rows,i+1)) + 'px'; if(L.id==='stack') d.style.left = (pad + (r.width-2*pad)*state.cols[0]) + 'px'; });
+}
 function sum(a,n){ let s=0; for(let i=0;i<n;i++) s+=a[i]; return s/a.reduce((x,y)=>x+y,0); }
 function dragify(el, axis, idx, sizeFn){
   el.addEventListener('pointerdown', e=>{
@@ -399,9 +407,9 @@ function dragify(el, axis, idx, sizeFn){
     const move = ev=>{
       const d = ((axis==='cols'?ev.clientX:ev.clientY)-start)/size*total;
       const a = Math.max(.12*total, Math.min(a0+b0-.12*total, a0+d));
-      arr[idx]=a; arr[idx+1]=a0+b0-a; render();
+      arr[idx]=a; arr[idx+1]=a0+b0-a; applyTracks();
     };
-    const up = ()=>{ el.releasePointerCapture(e.pointerId); document.body.classList.remove('dragging'); el.classList.remove('drag'); el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up); persist(); };
+    const up = ()=>{ el.releasePointerCapture(e.pointerId); document.body.classList.remove('dragging'); el.classList.remove('drag'); el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up); render(); };
     el.addEventListener('pointermove',move); el.addEventListener('pointerup',up);
   });
 }
